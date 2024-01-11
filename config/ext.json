@@ -595,5 +595,16 @@
         "lib-depends": [
             "zstd"
         ]
+    },
+    "spx": {
+        "type": "external",
+        "source": "spx",
+        "arg-type": "custom",
+        "ext-depends": [
+            "zlib"
+        ],
+        "lib-depends": [
+            "zlib"
+        ]
     }
 }

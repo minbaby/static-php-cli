@@ -110,6 +110,7 @@ class DownloadCommand extends BaseCommand
             // --for-extensions
             if ($for_ext = $this->getOption('for-extensions')) {
                 $ext = array_map('trim', array_filter(explode(',', $for_ext)));
+                
                 $sources = $this->calculateSourcesByExt($ext, !$this->getOption('without-suggestions'));
                 array_unshift($sources, 'php-src', 'micro', 'pkg-config');
             } else {
@@ -219,6 +220,7 @@ class DownloadCommand extends BaseCommand
                 $sources[] = Config::getExt($extension, 'source');
             }
         }
+        
         foreach ($libraries as $library) {
             $sources[] = Config::getLib($library, 'source');
         }

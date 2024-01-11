@@ -597,5 +597,14 @@
             "type": "file",
             "path": "LICENSE"
         }
+    },
+    "spx": {
+        "type": "ghtar",
+        "repo": "NoiseByNorthwest/php-spx",
+        "path": "php-src/ext/spx",
+        "license": {
+            "type": "file",
+            "path": "LICENSE"
+        }
     }
 }
