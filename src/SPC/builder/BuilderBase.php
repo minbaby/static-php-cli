@@ -4,14 +4,13 @@ declare(strict_types=1);
 
 namespace SPC\builder;
 
+use SPC\exception\ExceptionHandler;
 use SPC\exception\FileSystemException;
 use SPC\exception\RuntimeException;
 use SPC\exception\WrongUsageException;
 use SPC\store\Config;
-use SPC\store\FileSystem;
 use SPC\store\SourceExtractor;
 use SPC\util\CustomExt;
-use SPC\util\DependencyUtil;
 
 abstract class BuilderBase
 {
@@ -30,6 +29,9 @@ abstract class BuilderBase
     /** @var array<string, mixed> compile options */
     protected array $options = [];
 
+    /** @var string patch point name */
+    protected string $patch_point = '';
+
     /**
      * Build libraries
      *
@@ -37,60 +39,9 @@ abstract class BuilderBase
      * @throws FileSystemException
      * @throws RuntimeException
      * @throws WrongUsageException
+     * @internal
      */
-    public function buildLibs(array $sorted_libraries): void
-    {
-        // search all supported libs
-        $support_lib_list = [];
-        $classes = FileSystem::getClassesPsr4(
-            ROOT_DIR . '/src/SPC/builder/' . osfamily2dir() . '/library',
-            'SPC\\builder\\' . osfamily2dir() . '\\library'
-        );
-        foreach ($classes as $class) {
-            if (defined($class . '::NAME') && $class::NAME !== 'unknown' && Config::getLib($class::NAME) !== null) {
-                $support_lib_list[$class::NAME] = $class;
-            }
-        }
-
-        // if no libs specified, compile all supported libs
-        if ($sorted_libraries === [] && $this->isLibsOnly()) {
-            $libraries = array_keys($support_lib_list);
-            $sorted_libraries = DependencyUtil::getLibsByDeps($libraries);
-        }
-
-        // pkg-config must be compiled first, whether it is specified or not
-        if (!in_array('pkg-config', $sorted_libraries)) {
-            array_unshift($sorted_libraries, 'pkg-config');
-        }
-
-        // add lib object for builder
-        foreach ($sorted_libraries as $library) {
-            // if some libs are not supported (but in config "lib.json", throw exception)
-            if (!isset($support_lib_list[$library])) {
-                throw new WrongUsageException('library [' . $library . '] is in the lib.json list but not supported to compile, but in the future I will support it!');
-            }
-            $lib = new ($support_lib_list[$library])($this);
-            $this->addLib($lib);
-        }
-
-        // calculate and check dependencies
-        foreach ($this->libs as $lib) {
-            $lib->calcDependency();
-        }
-
-        // extract sources
-        SourceExtractor::initSource(libs: $sorted_libraries);
-
-        // build all libs
-        foreach ($this->libs as $lib) {
-            match ($lib->tryBuild($this->getOption('rebuild', false))) {
-                BUILD_STATUS_OK => logger()->info('lib [' . $lib::NAME . '] build success'),
-                BUILD_STATUS_ALREADY => logger()->notice('lib [' . $lib::NAME . '] already built'),
-                BUILD_STATUS_FAILED => logger()->error('lib [' . $lib::NAME . '] build failed'),
-                default => logger()->warning('lib [' . $lib::NAME . '] build status unknown'),
-            };
-        }
-    }
+    abstract public function buildLibs(array $sorted_libraries);
 
     /**
      * Add library to build.
@@ -172,6 +123,8 @@ abstract class BuilderBase
 
     /**
      * Set libs only mode.
+     *
+     * @internal
      */
     public function setLibsOnly(bool $status = true): void
     {
@@ -185,15 +138,22 @@ abstract class BuilderBase
      * @throws RuntimeException
      * @throws \ReflectionException
      * @throws WrongUsageException
+     * @internal
      */
     public function proveExts(array $extensions): void
     {
         CustomExt::loadCustomExt();
+        $this->emitPatchPoint('before-php-extract');
         SourceExtractor::initSource(sources: ['php-src']);
+        $this->emitPatchPoint('after-php-extract');
         if ($this->getPHPVersionID() >= 80000) {
+            $this->emitPatchPoint('before-micro-extract');
             SourceExtractor::initSource(sources: ['micro']);
+            $this->emitPatchPoint('after-micro-extract');
         }
+        $this->emitPatchPoint('before-exts-extract');
         SourceExtractor::initSource(exts: $extensions);
+        $this->emitPatchPoint('after-exts-extract');
         foreach ($extensions as $extension) {
             $class = CustomExt::getExtClass($extension);
             $ext = new $class($extension, $this);
@@ -223,6 +183,7 @@ abstract class BuilderBase
     {
         $ret = [];
         foreach ($this->exts as $ext) {
+            logger()->info($ext->getName() . ' is using ' . $ext->getConfigureArg());
             $ret[] = trim($ext->getConfigureArg());
         }
         logger()->debug('Using configure: ' . implode(' ', $ret));
@@ -343,6 +304,39 @@ abstract class BuilderBase
     }
 
     /**
+     * Get builder patch point name.
+     */
+    public function getPatchPoint(): string
+    {
+        return $this->patch_point;
+    }
+
+    public function emitPatchPoint(string $point_name): void
+    {
+        $this->patch_point = $point_name;
+        if (($patches = $this->getOption('with-added-patch', [])) === []) {
+            return;
+        }
+
+        foreach ($patches as $patch) {
+            try {
+                if (!file_exists($patch)) {
+                    throw new RuntimeException("Additional patch script file {$patch} not found!");
+                }
+                logger()->debug('Running additional patch script: ' . $patch);
+                require $patch;
+            } catch (\Throwable $e) {
+                logger()->critical('Patch script ' . $patch . ' failed to run.');
+                if ($this->getOption('debug')) {
+                    ExceptionHandler::getInstance()->handle($e);
+                } else {
+                    logger()->critical('Please check with --debug option to see more details.');
+                }
+            }
+        }
+    }
+
+    /**
      * Check if all libs are downloaded.
      * If not, throw exception.
      *
@@ -364,5 +358,21 @@ abstract class BuilderBase
                 ' not downloaded, maybe you need to "fetch" ' . (count($not_downloaded) === 1 ? 'it' : 'them') . ' first?'
             );
         }
+    }
+
+    /**
+     * Generate micro extension test php code.
+     */
+    protected function generateMicroExtTests(): string
+    {
+        $php = "<?php\n\necho '[micro-test-start]' . PHP_EOL;\n";
+
+        foreach ($this->getExts() as $ext) {
+            $ext_name = $ext->getDistName();
+            $php .= "echo 'Running micro with {$ext_name} test' . PHP_EOL;\n";
+            $php .= "assert(extension_loaded('{$ext_name}'));\n\n";
+        }
+        $php .= "echo '[micro-test-end]';\n";
+        return $php;
     }
 }

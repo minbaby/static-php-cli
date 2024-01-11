@@ -117,6 +117,7 @@ class DownloadCommand extends BaseCommand
                 // get source list that will be downloaded
                 $sources = array_map('trim', array_filter(explode(',', $this->getArgument('sources'))));
                 if (empty($sources)) {
+                    logger()->warning('Downloading with --all option will take more times to download, we recommend you to download with --for-extensions option !');
                     $sources = array_keys(Config::getSources());
                 }
             }
@@ -189,7 +190,8 @@ class DownloadCommand extends BaseCommand
         // create downloads
         try {
             if (PHP_OS_FAMILY !== 'Windows') {
-                f_passthru('mkdir ' . DOWNLOAD_PATH . ' && cd ' . DOWNLOAD_PATH . ' && unzip ' . escapeshellarg($path));
+                $abs_path = realpath($path);
+                f_passthru('mkdir ' . DOWNLOAD_PATH . ' && cd ' . DOWNLOAD_PATH . ' && unzip ' . escapeshellarg($abs_path));
             }
             // Windows TODO
 

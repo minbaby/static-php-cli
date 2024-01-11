@@ -1,5 +1,7 @@
 <?php
 
+/** @noinspection ALL */
+
 declare(strict_types=1);
 
 /**
@@ -10,14 +12,24 @@ declare(strict_types=1);
 // --------------------------------- edit area ---------------------------------
 
 // If you want to test your added extensions and libs, add below (comma separated, example `bcmath,openssl`).
-$extensions = 'ldap';
+$extensions = match (PHP_OS_FAMILY) {
+    'Linux', 'Darwin' => '',
+    'Windows' => 'mbstring,openssl',
+};
 
 // If you want to test lib-suggests feature with extension, add them below (comma separated, example `libwebp,libavif`).
-$with_libs = '';
+$with_libs = match (PHP_OS_FAMILY) {
+    'Linux', 'Darwin' => '',
+    'Windows' => '',
+};
 
 // Please change your test base combination. We recommend testing with `common`.
 // You can use `common`, `bulk`, `minimal` or `none`.
-$base_combination = 'minimal';
+// note: combination is only available for *nix platform. Windows must use `none` combination
+$base_combination = match (PHP_OS_FAMILY) {
+    'Linux', 'Darwin' => 'bulk',
+    'Windows' => 'none',
+};
 
 // -------------------------- code area, do not modify --------------------------
 
@@ -48,9 +60,15 @@ $trim_value = "\r\n \t,";
 $final_extensions = trim(trim($extensions, $trim_value) . ',' . _getCombination($base_combination), $trim_value);
 $final_libs = trim($with_libs, $trim_value);
 
+if (PHP_OS_FAMILY === 'Windows') {
+    $final_extensions_cmd = '"' . $final_extensions . '"';
+} else {
+    $final_extensions_cmd = $final_extensions;
+}
+
 echo match ($argv[1]) {
     'extensions' => $final_extensions,
     'libs' => $final_libs,
-    'cmd' => $final_extensions . ($final_libs === '' ? '' : (' --with-libs=' . $final_libs)),
+    'cmd' => $final_extensions_cmd . ($final_libs === '' ? '' : (' --with-libs="' . $final_libs . '"')),
     default => '',
 };

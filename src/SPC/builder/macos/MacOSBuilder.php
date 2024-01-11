@@ -4,20 +4,16 @@ declare(strict_types=1);
 
 namespace SPC\builder\macos;
 
-use SPC\builder\BuilderBase;
 use SPC\builder\macos\library\MacOSLibraryBase;
-use SPC\builder\traits\UnixBuilderTrait;
+use SPC\builder\unix\UnixBuilderBase;
 use SPC\exception\FileSystemException;
 use SPC\exception\RuntimeException;
 use SPC\exception\WrongUsageException;
 use SPC\store\FileSystem;
 use SPC\store\SourcePatcher;
 
-class MacOSBuilder extends BuilderBase
+class MacOSBuilder extends UnixBuilderBase
 {
-    /** Unix compatible builder methods */
-    use UnixBuilderTrait;
-
     /** @var bool Micro patch phar flag */
     private bool $phar_patched = false;
 
@@ -141,10 +137,12 @@ class MacOSBuilder extends BuilderBase
         }
         $this->setOption('extra-libs', $extra_libs);
 
+        $this->emitPatchPoint('before-php-buildconf');
         SourcePatcher::patchBeforeBuildconf($this);
 
         shell()->cd(SOURCE_PATH . '/php-src')->exec('./buildconf --force');
 
+        $this->emitPatchPoint('before-php-configure');
         SourcePatcher::patchBeforeConfigure($this);
 
         $json_74 = $this->getPHPVersionID() < 80000 ? '--enable-json ' : '';
@@ -190,6 +188,7 @@ class MacOSBuilder extends BuilderBase
                 $envs_build_php
             );
 
+        $this->emitPatchPoint('before-php-make');
         SourcePatcher::patchBeforeMake($this);
 
         $this->cleanMake();
@@ -215,6 +214,7 @@ class MacOSBuilder extends BuilderBase
         }
 
         if (php_uname('m') === $this->getOption('arch')) {
+            $this->emitPatchPoint('before-sanity-check');
             $this->sanityCheck($build_target);
         }
     }
@@ -225,7 +225,7 @@ class MacOSBuilder extends BuilderBase
      * @throws RuntimeException
      * @throws FileSystemException
      */
-    public function buildCli(): void
+    protected function buildCli(): void
     {
         $vars = SystemUtil::makeEnvVarString($this->getBuildVars());
 
@@ -244,7 +244,7 @@ class MacOSBuilder extends BuilderBase
      * @throws RuntimeException
      * @throws WrongUsageException
      */
-    public function buildMicro(): void
+    protected function buildMicro(): void
     {
         if ($this->getPHPVersionID() < 80000) {
             throw new WrongUsageException('phpmicro only support PHP >= 8.0!');
@@ -280,7 +280,7 @@ class MacOSBuilder extends BuilderBase
      * @throws RuntimeException
      * @throws FileSystemException
      */
-    public function buildFpm(): void
+    protected function buildFpm(): void
     {
         $vars = SystemUtil::makeEnvVarString($this->getBuildVars());
 
@@ -297,7 +297,7 @@ class MacOSBuilder extends BuilderBase
      *
      * @throws RuntimeException
      */
-    public function buildEmbed(): void
+    protected function buildEmbed(): void
     {
         $vars = SystemUtil::makeEnvVarString($this->getBuildVars());
 
