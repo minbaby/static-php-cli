@@ -12,6 +12,7 @@ class spx extends Extension
 {
     public function getUnixConfigureArg(): string
     {
-        return '--enable-spx --with-zlib --with-zlib-dir="' . BUILD_ROOT_PATH . '"';
+        // must upper SPX
+        return '--enable-SPX --with-zlib --with-zlib-dir="' . BUILD_ROOT_PATH . '"';
     }
 }
